@@ -12,8 +12,8 @@ class pm_platron extends PaymentRoot
 
     function showAdminFormParams($params)
     {
-        $jmlThisDocument = & JFactory::getDocument();
-        switch ($jmlThisDocument->language) 
+
+        switch (JFactory::getLanguage()) 
         {
             case 'en-gb': include(JPATH_SITE.'/administrator/components/com_jshopping/lang/en-GB_platron.php'); $language = 'en'; break;
             case 'ru-ru': include(JPATH_SITE.'/administrator/components/com_jshopping/lang/ru-RU_platron.php'); $language = 'ru'; break;
@@ -24,8 +24,8 @@ class pm_platron extends PaymentRoot
             if (!isset($params[$key])) 
                 $params[$key] = '';
         
-		$orders = &JSFactory::getModel('orders', 'JshoppingModel');
-        $currency = &JSFactory::getModel('currencies', 'JshoppingModel');
+		$orders = JSFactory::getModel('orders', 'JshoppingModel'); 
+        $currency = JSFactory::getModel('currencies', 'JshoppingModel');
 		
         include(dirname(__FILE__)."/adminparamsform.php");	
     }
@@ -143,8 +143,7 @@ class pm_platron extends PaymentRoot
 			$arrReq['pg_user_email'] = $order->d_email; // Для ПС Деньги@Mail.ru
 		}
 		
-		$jmlThisDocument = & JFactory::getDocument();
-		switch ($jmlThisDocument->language) 
+		switch (JFactory::getLanguage()) 
         {
             case 'en-gb': $language = 'EN'; break;
             case 'ru-ru': $language = 'RU'; break;
@@ -161,9 +160,35 @@ class pm_platron extends PaymentRoot
 		$arrReq['cms_payment_module'] = 'JOOMSHOPING';
 		$arrReq['pg_sig'] = PG_Signature::make('payment.php', $arrReq, $pmconfigs['secret_key']);
 		$query = http_build_query($arrReq);
-
+		$this->finishOrder($order->order_id);
 		header("Location: https://www.platron.ru/payment.php?$query");
       }
+	
+	 function finishOrder($order_id){
+		// перевод заказов в статус созданных и готовых к оплате
+		$dispatcher = JDispatcher::getInstance();
+		$jshopConfig = JSFactory::getConfig();
+		$order = JSFactory::getTable('order', 'jshop');
+        $order->load($order_id);
+        $order->order_created = 1;
+        $dispatcher->trigger('onBeforeAdminFinishOrder', array(&$order));
+        $order->store();
+		$order->updateProductsInStock(1);
+        
+        JSFactory::loadLanguageFile($order->getLang());
+        $checkout = JSFactory::getModel('checkout', 'jshop');
+        if ($jshopConfig->send_order_email){
+            $checkout->sendOrderEmail($order_id, 1);
+        }
+		// удаление заказов из корзины
+		$cart = JSFactory::getModel('cart', 'jshop');
+		$cart->load();
+		$i=0;
+		foreach ($cart->products as $product) {
+			$cart->delete($i);
+			$i+=1;
+		}
+    }
 	
     function getUrlParams($pmconfigs)
     {                        
