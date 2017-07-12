@@ -1,10 +1,22 @@
 <?php
 defined('_JEXEC') or die('Restricted access');
-include("PG_Signature.php");
+
+include('PG_Signature.php');
+include('Receipt'.DIRECTORY_SEPARATOR.'OfdReceiptItem.php');
+include('Receipt'.DIRECTORY_SEPARATOR.'OfdReceiptRequest.php');
 
 class pm_platron extends PaymentRoot
 {
-    
+
+    /**
+     * Вернуть адрес сервиса 
+     * @return string
+     */
+    function getServiseUrl() 
+    {
+        return self::SERVISE_URL;
+    }
+
     function showPaymentForm($params, $pmconfigs)
     {
         include(dirname(__FILE__)."/paymentform.php");
@@ -112,57 +124,178 @@ class pm_platron extends PaymentRoot
 	
 	function showEndForm($pmconfigs, $order)
 	{
-        $check_url = JURI::root() . "index.php?option=com_jshopping&controller=checkout&task=step7&act=check&js_paymentclass=pm_platron&type=check&order_id=".$order->order_id;
+        $paramsQuery           = $this->generateParamsQueryByTransactionFromOrder($order,$pmconfigs);
+        $paramsQuery['pg_sig'] = PG_Signature::make('init_payment.php', $paramsQuery, $pmconfigs['secret_key']);
+
+        $response        = $this->createQuery('init_payment.php', $paramsQuery);
+        $responseElement = new SimpleXMLElement($response);        
+        $checkResponse   = PG_Signature::checkXML('init_payment.php', $responseElement, $pmconfigs['secret_key']);
+        $redirectUrl     = (string) $responseElement->pg_redirect_url;
+
+        if ($this->checkResponseFromCreateTransaction($checkResponse,$responseElement)) {
+            $paymentId  = (string) $responseElement->pg_payment_id;
+            // создание чека 
+            if ($this->isCreateOfdCheck($pmconfigs)) {
+               $orderItems        = $this->createItemsOfOrderByCheck($order,$pmconfigs);
+
+               $ofdReceiptRequest = new OfdReceiptRequest($pmconfigs['merchant_id'], $paymentId);
+               $ofdReceiptRequest->setItems($orderItems);
+               $ofdReceiptRequest->createParamSign($pmconfigs['secret_key']);
+
+               $responseOfd = $this->createQuery($ofdReceiptRequest->getAction(), $ofdReceiptRequest->getParams());
+               $responseElementOfd = new SimpleXMLElement($responseOfd);
+               if ((string) $responseElementOfd->pg_status != 'ok') {
+                   die('Platron check create error. ' . $responseElementOfd->pg_error_description);
+               }
+           }
+        }
+        $this->finishOrder($order->order_id);
+
+        header("Location: ".$redirectUrl);
+    }
+
+    /**
+     * Проверка все ли удачно прошло, при создании транзакции
+     * @param  bool $checkResponse
+     * @param  SimpleXMLElement $responseElement 
+     * @return bool 
+     */
+    protected function checkResponseFromCreateTransaction($checkResponse,$responseElement)
+    {
+        return $checkResponse && (string) $responseElement->pg_status === 'ok';
+    }
+
+    /**
+     * Проверка, сделать ли чек 
+     * @param  array настройки 
+     * @return boolean [description]
+     */
+    protected function isCreateOfdCheck($pmconfigs)
+    {
+        return array_key_exists('create_ofd_check', $pmconfigs) && $pmconfigs['create_ofd_check'] == 1;
+    }
+
+    /**
+     * Создание списка товаров для чека
+     * @param  Order $order заказ
+     * @return array
+     */
+    public function createItemsOfOrderByCheck($order,$pmconfigs)
+    {
+        $ofdReceiptItems = [];
+        foreach($order->getAllItems()as $item) {
+            $ofdReceiptItem           = new OfdReceiptItem();
+            $ofdReceiptItem->label    = $item->product_name;
+            $ofdReceiptItem->amount   = round($item->product_item_price * $item->product_quantity, 2);
+            $ofdReceiptItem->price    = round($item->product_item_price, 2);
+            $ofdReceiptItem->quantity = $item->product_quantity;
+            $ofdReceiptItem->vat      = (int) $order->payment_tax;
+            $ofdReceiptItems[]        = $ofdReceiptItem;
+        }
+        if (!is_null($order->getShipping())) {
+            $ofdReceiptItems[] = $this->addShippingByOrder($order);
+        }
+        return $ofdReceiptItems;
+    }
+
+
+    protected function addShippingByOrder($order)
+    {
+        $ofdReceiptItem           = new OfdReceiptItem();
+        $ofdReceiptItem->label    = $order->getShippingName();
+        $ofdReceiptItem->amount   = (int) $order->order_shipping;
+        $ofdReceiptItem->price    = (int) $order->order_shipping;
+        $ofdReceiptItem->vat      = (int) $order->shipping_tax; // fixed
+        $ofdReceiptItem->quantity = 1;
+        return $ofdReceiptItem;
+    }
+
+    /**
+     * Создание http запроса  
+     * @param  string $action url относительный url платрон
+     * @param  array $params
+     * @return xml
+     */
+    protected function createQuery($action, $params = []) 
+    {
+
+        //Инициализирует сеанс
+        $connection = curl_init();
+
+        $url = $this->getServiseUrl().DIRECTORY_SEPARATOR. $action;
+        if (count($params)) {
+            $url = $url.'?'.http_build_query($params);
+        }
+        curl_setopt($connection, CURLOPT_RETURNTRANSFER, 1);
+        curl_setopt($connection, CURLOPT_URL, $url);
+        $response = curl_exec($connection);
+        curl_close($connection);
+        return $response;
+    }
+
+    /**
+     * генерация пареметров запроса для создания транзакции 
+     * @param  Order $order     заказ
+     * @param  array $pmconfigs настройки платежной системы
+     * @return array параметры запроса           
+     */
+    private function generateParamsQueryByTransactionFromOrder($order,$pmconfigs)
+    {
+        $check_url  = JURI::root() . "index.php?option=com_jshopping&controller=checkout&task=step7&act=check&js_paymentclass=pm_platron&type=check&order_id=".$order->order_id;
+
         $result_url = JURI::root() . "index.php?option=com_jshopping&controller=checkout&task=step7&act=result&js_paymentclass=pm_platron&type=check&order_id=".$order->order_id;
 
-        // sum of order
-        $out_summ = $order->order_total / $order->currency_exchange;
-		
-		$arrReq = array();
-		/* Обязательные параметры */
-		$arrReq['pg_merchant_id'] = $pmconfigs['merchant_id'];// Идентификатор магазина
-		$arrReq['pg_order_id']    = $order->order_id;		// Идентификатор заказа в системе магазина
-		$arrReq['pg_amount']      = sprintf("%01.2f",$out_summ);		// Сумма заказа
-		$arrReq['pg_description'] = "Оплата заказа ".$_SERVER['HTTP_HOST']; // Описание заказа (показывается в Платёжной системе)
-		$arrReq['pg_user_ip'] = $_SERVER['REMOTE_ADDR']; // Описание заказа (показывается в Платёжной системе)
-		$arrReq['pg_site_url'] = $_SERVER['HTTP_HOST']; // Для возврата на сайт
-		$arrReq['pg_lifetime'] = $pmconfigs['lifetime']*60*60; // Время жизни в секундах
-		
-		$arrReq['pg_check_url'] = $check_url; // Проверка заказа
-		$arrReq['pg_result_url'] = $result_url; // Оповещение о результатах
-		
-		if(isset($order->d_phone)){ // Телефон в 11 значном формате
-			$strUserPhone = preg_replace('/\D+/','',$order->d_phone);
-			if(strlen($strUserPhone) == 10)			
-				$strUserPhone .= "7";
-			$arrReq['pg_user_phone'] = $strUserPhone;
-		}
-		
-		if(isset($order->d_email)){
-			$arrReq['pg_user_contact_email'] = $order->d_email;
-			$arrReq['pg_user_email'] = $order->d_email; // Для ПС Деньги@Mail.ru
-		}
-		
-		switch (JFactory::getLanguage()) 
-        {
-            case 'en-gb': $language = 'EN'; break;
-            case 'ru-ru': $language = 'RU'; break;
-            default: $language = 'EN'; break;
-        }
-		
-		$arrReq['pg_language'] = $language;
-		$arrReq['pg_testing_mode'] = $pmconfigs['test_mode']?1:0;
-		
+        $arrReq   = [];
+        /* Обязательные параметры */
+        $arrReq['pg_merchant_id']  = $pmconfigs['merchant_id']; // Идентификатор магазина
+        $arrReq['pg_order_id']     = $order->order_id;  // Идентификатор заказа в системе магазина
+        $arrReq['pg_amount']       = sprintf("%01.2f",$order->order_total / $order->currency_exchange); // Сумма заказа
+        $arrReq['pg_description']  = "Оплата заказа ".$_SERVER['HTTP_HOST']; // Описание заказа (показывается в Платёжной системе)
+        $arrReq['pg_site_url']     = $_SERVER['HTTP_HOST']; // Для возврата на сайт
+        $arrReq['pg_lifetime']     = $pmconfigs['lifetime']*60*60; // Время жизни в секундах
+        $arrReq['pg_check_url']    = $check_url; // Проверка заказа
+        $arrReq['pg_result_url']   = $result_url; // Оповещение о результатах
+        $arrReq['pg_language']     = $this->getLangCMS();
+        // $arrReq['pg_user_ip']   = $_SERVER['REMOTE_ADDR'];
+        $arrReq['pg_testing_mode'] = $pmconfigs['test_mode'] ? 1 : 0;
+        $arrReq['pg_currency']     = $order->currency_code_iso;
+        $arrReq['pg_salt'] = rand(21,43433);
+        $arrReq['cms_payment_module'] = 'JOOMSHOPING';
 
-		$arrReq['pg_currency'] = $order->currency_code_iso;
-		
-		$arrReq['pg_salt'] = rand(21,43433);
-		$arrReq['cms_payment_module'] = 'JOOMSHOPING';
-		$arrReq['pg_sig'] = PG_Signature::make('payment.php', $arrReq, $pmconfigs['secret_key']);
-		$query = http_build_query($arrReq);
-		$this->finishOrder($order->order_id);
-		header("Location: https://www.platron.ru/payment.php?$query");
-      }
+        if (isset($order->d_phone)) { // Телефон в 11 значном формате
+            $strUserPhone = preg_replace('/\D+/','',$order->d_phone);
+            if (strlen($strUserPhone) == 10)    {
+                $strUserPhone .= "7";
+            }
+            $arrReq['pg_user_phone'] = $strUserPhone;
+        }
+        
+        if(isset($order->d_email)){
+            $arrReq['pg_user_contact_email'] = $order->d_email;
+            $arrReq['pg_user_email'] = $order->d_email; // Для ПС Деньги@Mail.ru
+        }
+        
+        return $arrReq;
+    }
+
+    /**
+     * получить язык CMS системы
+     * @return string
+     */
+    private function getLangCMS()
+    {
+        $language = 'EN';
+        switch (JFactory::getLanguage()) 
+        {
+            case 'en-gb': 
+                $language = 'EN'; 
+            break;
+            case 'ru-ru':
+                $language = 'RU';
+            break;
+        }
+        return $language;
+    }
 	
 	 function finishOrder($order_id){
 		// перевод заказов в статус созданных и готовых к оплате
