@@ -7,7 +7,7 @@ include('Receipt'.DIRECTORY_SEPARATOR.'OfdReceiptRequest.php');
 
 class pm_platron extends PaymentRoot
 {
-
+    const SERVISE_URL = 'https://www.platron.ru';
     /**
      * Вернуть адрес сервиса 
      * @return string
@@ -222,7 +222,7 @@ class pm_platron extends PaymentRoot
         //Инициализирует сеанс
         $connection = curl_init();
 
-        $url = $this->getServiseUrl().DIRECTORY_SEPARATOR. $action;
+        $url = $this->getServiseUrl(). '/' . $action;
         if (count($params)) {
             $url = $url.'?'.http_build_query($params);
         }
