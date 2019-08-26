@@ -12,4 +12,6 @@ define('_JSHOP_PLATRON_TRANSACTION_PENDING_DESCRIPTION','Выберите ста
 define('_JSHOP_PLATRON_TRANSACTION_FAILED_DESCRIPTION','Выберите статус заказа, который будет установлен, если PLATRON транзакция прошла неуспешно. ');
 define('_JSHOP_PLATRON_TRANSACTION_CREATE_OFD_CHECK','Создание чека');
 define('_JSHOP_PLATRON_TRANSACTION_CREATE_OFD_CHECK_DESCRIPTION','Создать чек?');
+define('_JSHOP_PLATRON_TRANSACTION_CREATE_OFD_VAT', 'Ставка налога');
+define('_JSHOP_PLATRON_TRANSACTION_CREATE_OFD_VAT_DESCRIPTION', 'Ставка налога');
 ?>

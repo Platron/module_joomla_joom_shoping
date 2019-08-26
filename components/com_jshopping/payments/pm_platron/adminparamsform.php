@@ -84,6 +84,25 @@
 		?>
 		</td>
 	</tr>
+
+	<tr>
+		<td style="width:250px;" class="key">
+		<?php echo _JSHOP_PLATRON_TRANSACTION_CREATE_OFD_VAT;?>
+		</td>
+		<td>
+		<?php              
+		print JHTML::_('select.genericlist', array(
+			'none' => 'none',
+			'0' => '0%',
+			'10' => '10%',
+			'20' => '20%',
+			'110' => '10/110',
+			'120' => '20/120',
+		), 'pm_params[ofd_check_vat]', 'class = "inputbox" size = "1"', $params['ofd_check_vat']);
+		echo " ".JHTML::tooltip(_JSHOP_PLATRON_TRANSACTION_CREATE_OFD_VAT_DESCRIPTION);
+		?>
+		</td>
+	</tr>
 </table>
 </fieldset>   
 <div class="clr"></div>

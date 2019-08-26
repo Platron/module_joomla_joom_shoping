@@ -189,7 +189,7 @@ class pm_platron extends PaymentRoot
             $ofdReceiptItem->amount   = round($item->product_item_price * $item->product_quantity, 2);
             $ofdReceiptItem->price    = round($item->product_item_price, 2);
             $ofdReceiptItem->quantity = $item->product_quantity;
-            $ofdReceiptItem->vat      = (int) $order->payment_tax;
+            $ofdReceiptItem->vat      = $pmconfigs['ofd_check_vat'];
             $ofdReceiptItems[]        = $ofdReceiptItem;
         }
         if (!is_null($order->getShipping())) {
@@ -203,9 +203,9 @@ class pm_platron extends PaymentRoot
     {
         $ofdReceiptItem           = new OfdReceiptItem();
         $ofdReceiptItem->label    = $order->getShippingName();
-        $ofdReceiptItem->amount   = (int) $order->order_shipping;
-        $ofdReceiptItem->price    = (int) $order->order_shipping;
-        $ofdReceiptItem->vat      = (int) $order->shipping_tax; // fixed
+        $ofdReceiptItem->amount   = (float) $order->order_shipping;
+        $ofdReceiptItem->price    = (float) $order->order_shipping;
+        $ofdReceiptItem->vat      = '20';
         $ofdReceiptItem->quantity = 1;
         return $ofdReceiptItem;
     }
