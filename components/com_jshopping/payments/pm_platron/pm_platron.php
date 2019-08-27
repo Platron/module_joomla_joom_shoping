@@ -218,7 +218,7 @@ class pm_platron extends PaymentRoot
      */
     protected function createQuery($action, $params = []) 
     {
-
+        JLog::add(sprintf('Query action "%s" with params: %s', $action, print_r($params, true)), JLog::INFO, 'platron');
         //Инициализирует сеанс
         $connection = curl_init();
 
@@ -226,9 +226,15 @@ class pm_platron extends PaymentRoot
         if (count($params)) {
             $url = $url.'?'.http_build_query($params);
         }
+        JLog::add(sprintf('Query url: %s', $url), JLog::INFO, 'platron');
         curl_setopt($connection, CURLOPT_RETURNTRANSFER, 1);
         curl_setopt($connection, CURLOPT_URL, $url);
         $response = curl_exec($connection);
+        if ($response === false) {
+            JLog::add(sprintf('Platron query error: (%d) %s', curl_errno($connection), curl_error($connection)), JLog::ERROR, 'platron');
+        } else {
+            JLog::add(sprintf('Platron response: %s', $response), JLog::INFO, 'platron');
+        }
         curl_close($connection);
         return $response;
     }
